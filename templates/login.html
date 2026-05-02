@@ -1,20 +1,122 @@
 <!DOCTYPE html>
 <html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+    margin:0;
+    font-family:Arial;
+    background: linear-gradient(135deg, #5865f2, #7289da);
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+}
+
+/* BOX */
+.container {
+    background:white;
+    padding:25px;
+    border-radius:15px;
+    width:90%;
+    max-width:350px;
+    text-align:center;
+    box-shadow:0 10px 30px rgba(0,0,0,0.2);
+}
+
+/* TITLE */
+h2 {
+    margin-bottom:20px;
+}
+
+/* INPUT */
+input {
+    width:100%;
+    padding:12px;
+    margin:8px 0;
+    border:none;
+    border-radius:8px;
+    background:#f1f1f1;
+}
+
+/* BUTTON */
+button {
+    width:100%;
+    padding:12px;
+    margin-top:10px;
+    border:none;
+    border-radius:8px;
+    background:#5865f2;
+    color:white;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+button:hover {
+    background:#4752c4;
+}
+
+/* SWITCH TEXT */
+.switch {
+    margin-top:15px;
+    color:#555;
+    cursor:pointer;
+}
+
+/* MOBILE FIX */
+@media (max-width:400px){
+    .container {
+        padding:20px;
+    }
+}
+</style>
+</head>
+
 <body>
 
-<h2>💬 PyChat</h2>
+<div class="container">
 
-<form action="/login" method="post">
-<input name="username" placeholder="Username">
-<input name="password" placeholder="Password">
-<button>Login</button>
-</form>
+    <h2>🚀 PyChat</h2>
 
-<form action="/register" method="post">
-<input name="username">
-<input name="password">
-<button>Register</button>
-</form>
+    <!-- LOGIN -->
+    <div id="loginBox">
+        <form action="/login" method="POST">
+            <input name="username" placeholder="Tên đăng nhập" required>
+            <input name="password" type="password" placeholder="Mật khẩu" required>
+            <button>Đăng nhập</button>
+        </form>
+
+        <div class="switch" onclick="toggle()">Chưa có tài khoản? Đăng ký</div>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="registerBox" style="display:none;">
+        <form action="/register" method="POST">
+            <input name="username" placeholder="Tên đăng nhập" required>
+            <input name="password" type="password" placeholder="Mật khẩu" required>
+            <button>Đăng ký</button>
+        </form>
+
+        <div class="switch" onclick="toggle()">Đã có tài khoản? Đăng nhập</div>
+    </div>
+
+</div>
+
+<script>
+function toggle(){
+    let login = document.getElementById("loginBox");
+    let reg = document.getElementById("registerBox");
+
+    if(login.style.display === "none"){
+        login.style.display = "block";
+        reg.style.display = "none";
+    } else {
+        login.style.display = "none";
+        reg.style.display = "block";
+    }
+}
+</script>
 
 </body>
 </html>
