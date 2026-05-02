@@ -1,27 +1,52 @@
-from flask import Flask, render_template, request, redirect, jsonify
+from flask import Flask, render_template, request, redirect, jsonify, session
 from flask_socketio import SocketIO, emit, join_room
 import sqlite3
-import datetime
 import os
+import io
+import contextlib
+import signal
 
 app = Flask(__name__)
+app.secret_key = "pychat_secret"
+
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 
-# ===== DB =====
+# ===== DATABASE =====
 def get_db():
     return sqlite3.connect("chat.db", check_same_thread=False)
 
-# ===== INIT DB =====
-db = get_db()
-c = db.cursor()
+def init_db():
+    db = get_db()
+    c = db.cursor()
 
-c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT UNIQUE, password TEXT)")
-c.execute("CREATE TABLE IF NOT EXISTS friends (user1 TEXT, user2 TEXT, UNIQUE(user1,user2))")
-c.execute("CREATE TABLE IF NOT EXISTS requests (from_user TEXT, to_user TEXT, UNIQUE(from_user,to_user))")
-c.execute("CREATE TABLE IF NOT EXISTS messages (user TEXT, text TEXT, room TEXT)")
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+        username TEXT UNIQUE,
+        password TEXT,
+        email TEXT
+    )
+    """)
 
-db.commit()
-db.close()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS friends(
+        user1 TEXT,
+        user2 TEXT,
+        UNIQUE(user1,user2)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS messages(
+        user TEXT,
+        text TEXT,
+        room TEXT
+    )
+    """)
+
+    db.commit()
+    db.close()
+
+init_db()
 
 # ===== ONLINE =====
 online_users = set()
@@ -30,24 +55,22 @@ user_map = {}
 # ===== ROUTES =====
 @app.route('/')
 def home():
+    if 'user' in session:
+        return redirect('/chat')
     return render_template('login.html')
 
-@app.route('/register', methods=['POST'])
-def register():
-    db = get_db()
-    c = db.cursor()
+@app.route('/chat')
+def chat():
+    if 'user' not in session:
+        return redirect('/')
+    return render_template('chat.html', user=session['user'])
 
-    try:
-        c.execute("INSERT INTO users VALUES (?,?)",
-                  (request.form['username'], request.form['password']))
-        db.commit()
-    except:
-        db.close()
-        return "User đã tồn tại"
-
-    db.close()
+@app.route('/logout')
+def logout():
+    session.pop('user', None)
     return redirect('/')
 
+# ===== LOGIN =====
 @app.route('/login', methods=['POST'])
 def login():
     db = get_db()
@@ -58,15 +81,32 @@ def login():
 
     c.execute("SELECT * FROM users WHERE username=? AND password=?", (u,p))
     if c.fetchone():
+        session['user'] = u
         db.close()
-        return redirect(f"/chat/{u}")
+        return redirect('/chat')
 
     db.close()
     return "Sai tài khoản"
 
-@app.route('/chat/<user>')
-def chat(user):
-    return render_template('chat.html', user=user)
+# ===== REGISTER =====
+@app.route('/register', methods=['POST'])
+def register():
+    db = get_db()
+    c = db.cursor()
+
+    u = request.form['username']
+    p = request.form['password']
+    e = request.form['email']
+
+    try:
+        c.execute("INSERT INTO users VALUES (?,?,?)", (u,p,e))
+        db.commit()
+    except:
+        db.close()
+        return "User tồn tại"
+
+    db.close()
+    return "OK"
 
 # ===== FRIEND =====
 @app.route('/add_friend', methods=['POST'])
@@ -80,44 +120,12 @@ def add_friend():
     if f == t:
         return "Không thể tự kết bạn"
 
-    c.execute("SELECT * FROM users WHERE username=?", (t,))
-    if not c.fetchone():
-        return "User không tồn tại"
-
     c.execute("SELECT * FROM friends WHERE user1=? AND user2=?", (f,t))
     if c.fetchone():
         return "Đã là bạn"
 
-    c.execute("SELECT * FROM requests WHERE from_user=? AND to_user=?", (f,t))
-    if c.fetchone():
-        return "Đã gửi rồi"
-
-    # auto accept
-    c.execute("SELECT * FROM requests WHERE from_user=? AND to_user=?", (t,f))
-    if c.fetchone():
-        c.execute("INSERT OR IGNORE INTO friends VALUES (?,?)", (f,t))
-        c.execute("INSERT OR IGNORE INTO friends VALUES (?,?)", (t,f))
-        c.execute("DELETE FROM requests WHERE from_user=? AND to_user=?", (t,f))
-        db.commit()
-        db.close()
-        return "Đã kết bạn"
-
-    c.execute("INSERT OR IGNORE INTO requests VALUES (?,?)", (f,t))
-    db.commit()
-    db.close()
-    return "OK"
-
-@app.route('/accept', methods=['POST'])
-def accept():
-    db = get_db()
-    c = db.cursor()
-
-    u1 = request.form['from']
-    u2 = request.form['to']
-
-    c.execute("INSERT OR IGNORE INTO friends VALUES (?,?)", (u1,u2))
-    c.execute("INSERT OR IGNORE INTO friends VALUES (?,?)", (u2,u1))
-    c.execute("DELETE FROM requests WHERE from_user=? AND to_user=?", (u1,u2))
+    c.execute("INSERT OR IGNORE INTO friends VALUES (?,?)", (f,t))
+    c.execute("INSERT OR IGNORE INTO friends VALUES (?,?)", (t,f))
 
     db.commit()
     db.close()
@@ -129,22 +137,12 @@ def friends(user):
     c = db.cursor()
 
     c.execute("SELECT user2 FROM friends WHERE user1=?", (user,))
-    data = [f[0] for f in c.fetchall()]
+    data = [x[0] for x in c.fetchall()]
 
     db.close()
-    return jsonify({"friends": data})
+    return jsonify(data)
 
-@app.route('/requests/<user>')
-def get_requests(user):
-    db = get_db()
-    c = db.cursor()
-
-    c.execute("SELECT from_user FROM requests WHERE to_user=?", (user,))
-    data = [r[0] for r in c.fetchall()]
-
-    db.close()
-    return jsonify({"requests": data})
-
+# ===== MESSAGES =====
 @app.route('/messages/<room>')
 def messages(room):
     db = get_db()
@@ -156,29 +154,46 @@ def messages(room):
     db.close()
     return jsonify(data)
 
-# ===== PYTHON BOT =====
-def handle_python(cmd):
+# ===== PYTHON IDE BOT =====
+SAFE_BUILTINS = {
+    "print": print,
+    "len": len,
+    "sum": sum,
+    "range": range,
+    "int": int,
+    "float": float,
+    "str": str
+}
+
+def is_safe(code):
+    banned = ["import", "os", "sys", "open", "__", "eval", "exec"]
+    return not any(x in code for x in banned)
+
+class TimeoutException(Exception):
+    pass
+
+def handler(signum, frame):
+    raise TimeoutException()
+
+signal.signal(signal.SIGALRM, handler)
+
+def run_code(code):
+    if not is_safe(code):
+        return "❌ Code không an toàn"
+
+    output = io.StringIO()
+
     try:
-        parts = cmd.split()
+        signal.alarm(2)
+        with contextlib.redirect_stdout(output):
+            exec(code, {"__builtins__": SAFE_BUILTINS}, {})
+        signal.alarm(0)
+    except TimeoutException:
+        return "⏱️ Quá thời gian"
+    except Exception as e:
+        return f"❌ Lỗi: {e}"
 
-        if not parts:
-            return "Không có lệnh"
-
-        if parts[0] == "add":
-            return str(sum(map(int, parts[1:])))
-        elif parts[0] == "mul":
-            result = 1
-            for n in map(int, parts[1:]):
-                result *= n
-            return str(result)
-        elif parts[0] == "time":
-            return str(datetime.datetime.now())
-        elif parts[0] == "help":
-            return "add | mul | time"
-
-        return "Sai lệnh"
-    except:
-        return "Lỗi command"
+    return output.getvalue() or "✅ OK"
 
 # ===== SOCKET =====
 @socketio.on("join")
@@ -187,52 +202,46 @@ def join(data):
     room = data['room']
 
     join_room(room)
-
     user_map[request.sid] = user
     online_users.add(user)
 
-    emit("online_list", list(online_users), broadcast=True)
+    emit("online", list(online_users), broadcast=True)
 
 @socketio.on("disconnect")
 def disconnect():
     user = user_map.get(request.sid)
-
     if user:
         online_users.discard(user)
         user_map.pop(request.sid, None)
 
-    emit("online_list", list(online_users), broadcast=True)
+    emit("online", list(online_users), broadcast=True)
 
 @socketio.on("send_message")
-def msg(data):
+def handle_msg(data):
     user = data['user']
     text = data['text']
     room = data['room']
 
-    # 🤖 BOT
+    # 🤖 IDE BOT
     if text.startswith("/py"):
-        result = handle_python(text[4:])
-
+        result = run_code(text[3:].strip())
         emit("receive_message", {
-            "user": "🤖 PyBot",
-            "text": result,
-            "room": room
+            "user": "🤖 PyIDE",
+            "text": result
         }, to=room)
         return
 
-    # 💾 SAVE MESSAGE
+    # 💾 SAVE
     db = get_db()
     c = db.cursor()
 
-    c.execute("INSERT INTO messages VALUES (?,?,?)",
-              (user, text, room))
-
+    c.execute("INSERT INTO messages VALUES (?,?,?)", (user,text,room))
     db.commit()
     db.close()
 
     emit("receive_message", data, to=room)
 
-# ===== RUN (DEPLOY READY) =====
+# ===== RUN =====
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     socketio.run(app, host='0.0.0.0', port=port)
