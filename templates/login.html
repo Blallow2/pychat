@@ -39,82 +39,35 @@ input {
     border-radius:8px;
     background:#f1f1f1;
 }
-
-/* BUTTON */
-button {
-    width:100%;
-    padding:12px;
-    margin-top:10px;
-    border:none;
-    border-radius:8px;
-    background:#5865f2;
-    color:white;
-    font-weight:bold;
-    cursor:pointer;
-}
-
-button:hover {
-    background:#4752c4;
-}
-
-/* SWITCH TEXT */
-.switch {
-    margin-top:15px;
-    color:#555;
-    cursor:pointer;
-}
-
-/* MOBILE FIX */
-@media (max-width:400px){
-    .container {
-        padding:20px;
-    }
-}
-</style>
-</head>
-
+<!DOCTYPE html>
+<html>
 <body>
 
-<div class="container">
+<h2>PyChat</h2>
 
-    <h2>🚀 PyChat</h2>
+<input id="u" placeholder="username">
+<input id="p" type="password" placeholder="password">
 
-    <!-- LOGIN -->
-    <div id="loginBox">
-        <form action="/login" method="POST">
-            <input name="username" placeholder="Tên đăng nhập" required>
-            <input name="password" type="password" placeholder="Mật khẩu" required>
-            <button>Đăng nhập</button>
-        </form>
-
-        <div class="switch" onclick="toggle()">Chưa có tài khoản? Đăng ký</div>
-    </div>
-
-    <!-- REGISTER -->
-    <div id="registerBox" style="display:none;">
-        <form action="/register" method="POST">
-            <input name="username" placeholder="Tên đăng nhập" required>
-            <input name="password" type="password" placeholder="Mật khẩu" required>
-            <button>Đăng ký</button>
-        </form>
-
-        <div class="switch" onclick="toggle()">Đã có tài khoản? Đăng nhập</div>
-    </div>
-
-</div>
+<button onclick="login()">Login</button>
+<button onclick="register()">Register</button>
 
 <script>
-function toggle(){
-    let login = document.getElementById("loginBox");
-    let reg = document.getElementById("registerBox");
+function login(){
+fetch('/login',{
+method:'POST',
+headers:{'Content-Type':'application/x-www-form-urlencoded'},
+body:`username=${u.value}&password=${p.value}`
+}).then(r=>r.text()).then(t=>{
+if(t=="OK") location='/chat'; else alert(t);
+});
+}
 
-    if(login.style.display === "none"){
-        login.style.display = "block";
-        reg.style.display = "none";
-    } else {
-        login.style.display = "none";
-        reg.style.display = "block";
-    }
+function register(){
+fetch('/register',{
+method:'POST',
+headers:{'Content-Type':'application/x-www-form-urlencoded'},
+body:`username=${u.value}&password=${p.value}`
+}).then(r=>r.text()).then(alert);
 }
 </script>
 
