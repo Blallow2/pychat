@@ -1,265 +1,76 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
 <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
-
-<style>
-body {
-    margin:0;
-    display:flex;
-    height:100vh;
-    font-family:Arial;
-}
-
-/* SIDEBAR */
-.sidebar {
-    width:250px;
-    background:#2f3136;
-    color:white;
-    padding:10px;
-}
-
-.friend {
-    padding:8px;
-    border-radius:6px;
-    margin:3px 0;
-    cursor:pointer;
-}
-
-.friend:hover {
-    background:#40444b;
-}
-
-.active {
-    background:#5865f2;
-}
-
-/* CHAT AREA */
-.chat {
-    flex:1;
-    display:flex;
-    flex-direction:column;
-    background:#36393f;
-}
-
-.header {
-    height:50px;
-    background:#202225;
-    color:white;
-    display:flex;
-    align-items:center;
-    padding-left:15px;
-    font-weight:bold;
-}
-
-#messages {
-    flex:1;
-    overflow-y:auto;
-    padding:10px;
-}
-
-/* MESSAGE BUBBLE */
-.msg {
-    max-width:60%;
-    padding:10px;
-    margin:5px;
-    border-radius:10px;
-    color:white;
-}
-
-.me {
-    background:#5865f2;
-    margin-left:auto;
-}
-
-.other {
-    background:#40444b;
-}
-
-/* INPUT */
-.inputBox {
-    display:flex;
-    padding:10px;
-    background:#2f3136;
-}
-
-#msg {
-    flex:1;
-    padding:10px;
-    border:none;
-    border-radius:5px;
-}
-</style>
 </head>
 
 <body>
 
-<!-- SIDEBAR -->
-<div class="sidebar">
-    <h3>👤 {{user}}</h3>
+<h3>PyChat</h3>
 
-    <input id="addUser" placeholder="Thêm bạn">
-    <button onclick="addFriend()">+</button>
+<div id="friends"></div>
 
-    <h4>📩 Requests</h4>
-    <div id="requests"></div>
+<div id="chat" style="height:300px;overflow:auto;border:1px solid"></div>
 
-    <h4>👥 Friends</h4>
-    <div id="friends"></div>
-</div>
-
-<!-- CHAT -->
-<div class="chat">
-
-    <div class="header" id="chatHeader">
-        Chọn bạn để chat
-    </div>
-
-    <div id="messages"></div>
-
-    <div class="inputBox">
-        <input id="msg" placeholder="Nhắn tin...">
-    </div>
-
-</div>
+<input id="to" placeholder="chat với ai">
+<input id="msg">
+<input type="file" id="img">
+<button onclick="send()">Send</button>
 
 <script>
-var socket = io();
+let socket = io();
+let me = "{{user}}";
+let current = "";
 
-let user = "{{user}}";
-let room = null;
-let currentFriend = null;
-
-// ===== ADD FRIEND =====
-function addFriend(){
-    let to = document.getElementById("addUser").value;
-
-    fetch('/add_friend',{
-        method:'POST',
-        headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:`from=${user}&to=${to}`
-    });
-}
-
-// ===== LOAD FRIENDS =====
-function loadFriends(){
-    fetch('/friends/'+user)
-    .then(r=>r.json())
-    .then(data=>{
-        let div=document.getElementById("friends");
-        div.innerHTML="";
-
-        data.friends.forEach(f=>{
-            div.innerHTML += `
-            <div class="friend ${f===currentFriend?'active':''}"
-                 onclick="openChat('${f}')">
-                 ${f}
-            </div>`;
-        });
-    });
-}
-
-// ===== LOAD REQUEST =====
-function loadRequests(){
-    fetch('/requests/'+user)
-    .then(r=>r.json())
-    .then(data=>{
-        let div=document.getElementById("requests");
-        div.innerHTML="";
-
-        data.requests.forEach(u=>{
-            div.innerHTML += `
-            ${u} <button onclick="accept('${u}')">✔</button><br>`;
-        });
-    });
-}
-
-// ===== ACCEPT =====
-function accept(u){
-    fetch('/accept',{
-        method:'POST',
-        headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:`from=${u}&to=${user}`
-    }).then(()=>{
-        loadFriends();
-        loadRequests();
-    });
-}
-
-// ===== OPEN CHAT =====
-function openChat(f){
-    currentFriend = f;
-    room = [user,f].sort().join("_");
-
-    document.getElementById("chatHeader").innerText = "💬 " + f;
-
-    socket.emit("join",{user:user, room:room});
-
-    // load tin nhắn cũ
-    fetch('/messages/'+room)
-    .then(r=>r.json())
-    .then(data=>{
-        let div=document.getElementById("messages");
-        div.innerHTML="";
-
-        data.forEach(m=>{
-            let cls = m.user === user ? "me" : "other";
-
-            div.innerHTML += `
-            <div class="msg ${cls}">
-                ${m.text}
-            </div>`;
-        });
-    });
-
-    loadFriends();
-}
-
-// ===== SEND MESSAGE =====
-document.getElementById("msg").addEventListener("keypress",function(e){
-    if(e.key==="Enter"){
-        if(!room){
-            alert("Chọn người để chat!");
-            return;
-        }
-
-        socket.emit("send_message",{
-            user:user,
-            text:this.value,
-            room:room
-        });
-
-        this.value="";
-    }
+fetch('/friends').then(r=>r.json()).then(data=>{
+friends.innerHTML = data.map(f=>`<div onclick="openChat('${f}')">${f}</div>`).join("");
 });
 
-// ===== RECEIVE =====
-socket.on("receive_message",function(d){
+function openChat(user){
+current = user;
+socket.emit("join",{u1:me,u2:user});
 
-    let cls = "other";
-    let icon = "";
-
-    if(d.user === user) cls = "me";
-
-    if(d.user === "🤖 PyChatBot"){
-        cls = "bot";
-        icon = "🤖 ";
-    }
-
-    let div=document.getElementById("messages");
-    div.innerHTML += `
-    <div class="msg ${cls}">
-        ${icon}${d.text}
-    </div>`;
+fetch('/messages/'+user).then(r=>r.json()).then(data=>{
+chat.innerHTML="";
+data.forEach(add);
 });
+}
 
-// ===== AUTO LOAD =====
-setInterval(()=>{
-    loadFriends();
-    loadRequests();
-},2000);
+socket.on("msg", add);
 
+function add(d){
+let div = document.createElement("div");
+div.innerHTML = `<b>${d.user}</b>: ${d.text||""}`;
+if(d.image){
+div.innerHTML += `<br><img src="${d.image}" width=100>`;
+}
+chat.appendChild(div);
+}
+
+function send(){
+let file = img.files[0];
+
+if(file){
+let form = new FormData();
+form.append("file", file);
+
+fetch('/upload',{method:'POST',body:form})
+.then(r=>r.text())
+.then(url=>{
+socket.emit("send",{to:current,text:msg.value,image:url});
+});
+}else{
+socket.emit("send",{to:current,text:msg.value});
+}
+}
+
+Notification.requestPermission();
+
+socket.on("msg", d=>{
+if(document.hidden){
+new Notification("Tin mới",{body:d.user+": "+d.text});
+}
+});
 </script>
 
 </body>
